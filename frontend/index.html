@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GenAI ChatBot</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Chat History</h2>
+                <button id="newChatBtn" class="new-chat-btn">+ New</button>
+            </div>
+            <div class="chat-history" id="chatHistory">
+                <!-- Chat history items will be populated here -->
+            </div>
+        </div>
+        
+        <div class="chat-container">
+        <div class="chat-header">
+            <div class="bot-info">
+                <div class="bot-details">
+                    <h3>InfiniTree Nexus</h3>
+                </div>
+            </div>
+            <div class="chat-actions">
+                <button id="toggleSidebarBtn" class="icon-btn" title="Toggle sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <button id="darkModeBtn" class="icon-btn" title="Toggle dark mode">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button id="settingsBtn" class="icon-btn" title="Settings">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button id="clearBtn" class="icon-btn" title="Clear Chat">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="chatWindow" class="chat-window">
+            <div class="welcome-message">
+                <div class="message-content">
+                    <p>👋 Hello! I'm your GenAI Assistant. How can I help you today?</p>
+                    <p class="suggestions">You can ask me questions, upload files for analysis, or just have a conversation!</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="settingsPanel" class="settings-panel hidden">
+            <h4>Chat Settings</h4>
+            <div class="setting-group">
+                <label>Temperature: <span id="tempValue">0.7</span></label>
+                <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+            </div>
+            <div class="setting-group">
+                <label>Top-p: <span id="topPValue">0.9</span></label>
+                <input type="range" id="top_p" min="0" max="1" step="0.1" value="0.9">
+            </div>
+            <div class="setting-group">
+                <label>Top-k: <span id="topKValue">40</span></label>
+                <input type="range" id="top_k" min="1" max="100" step="1" value="40">
+            </div>
+        </div>
+
+        <div class="input-container">
+            <form id="chatForm" class="chat-input-form" enctype="multipart/form-data">
+                <div class="file-upload-area" id="fileUploadArea">
+                    <input type="file" id="contextFile" name="context_file" accept=".pdf,.pptx,.docx,.txt,.png,.jpg,.jpeg,.gif" hidden>
+                    <div id="filePreview" class="file-preview hidden"></div>
+                </div>
+                
+                <div class="input-row">
+                    <button type="button" id="attachBtn" class="attach-btn" title="Attach file">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <div class="input-wrapper">
+                        <textarea id="messageInput" name="prompt" placeholder="Type your message..." rows="1" required></textarea>
+                        <button type="submit" id="sendBtn" class="send-btn" title="Send message">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    </div>
+
+    <script>
+        let currentFile = null;
+        let chatHistory = JSON.parse(localStorage.getItem('chatHistory')) || [];
+        let currentChatId = null;
+        
+        // Load chat history on page load
+        function loadChatHistory() {
+            const historyContainer = document.getElementById('chatHistory');
+            historyContainer.innerHTML = '';
+            
+            if (chatHistory.length === 0) {
+                historyContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #6b7280; font-size: 14px;">No chat history yet</div>';
+                return;
+            }
+            
+            chatHistory.forEach(chat => {
+                const chatItem = document.createElement('div');
+                chatItem.className = 'chat-item';
+                
+                const date = new Date(chat.timestamp).toLocaleDateString();
+                chatItem.innerHTML = `
+                    <div class="chat-content" onclick="loadChat('${chat.id}')">
+                        <div class="chat-title">${chat.title}</div>
+                        <div class="chat-preview">${chat.preview}</div>
+                        <div class="chat-date">${date}</div>
+                    </div>
+                    <button class="delete-chat" onclick="deleteChat('${chat.id}', event)" title="Delete chat">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+                
+                historyContainer.appendChild(chatItem);
+            });
+        }
+        
+        // Save current chat
+        function saveCurrentChat() {
+            if (!currentChatId) return;
+            
+            const chatWindow = document.getElementById('chatWindow');
+            const messages = Array.from(chatWindow.children).filter(el => 
+                el.classList.contains('message') || el.classList.contains('welcome-message')
+            );
+            
+            if (messages.length === 0) return;
+            
+            const chatIndex = chatHistory.findIndex(chat => chat.id === currentChatId);
+            if (chatIndex !== -1) {
+                chatHistory[chatIndex].messages = chatWindow.innerHTML;
+                chatHistory[chatIndex].timestamp = Date.now();
+                localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            }
+        }
+        
+        // Load specific chat (global function)
+        window.loadChat = function(chatId) {
+            saveCurrentChat();
+            
+            const chat = chatHistory.find(c => c.id === chatId);
+            if (chat) {
+                currentChatId = chatId;
+                document.getElementById('chatWindow').innerHTML = chat.messages;
+                
+                // Update active state
+                document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+                event.target.closest('.chat-item').classList.add('active');
+            }
+        };
+        
+        window.deleteChat = function(chatId, event) {
+            event.stopPropagation();
+            if (!confirm('Are you sure you want to delete this chat?')) return;
+            
+            const chatIndex = chatHistory.findIndex(chat => chat.id === chatId);
+            if (chatIndex === -1) return;
+            
+            chatHistory.splice(chatIndex, 1);
+            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            
+            if (currentChatId === chatId) {
+                if (chatHistory.length > 0) {
+                    currentChatId = chatHistory[0].id;
+                    document.getElementById('chatWindow').innerHTML = chatHistory[0].messages;
+                } else {
+                    createNewChat();
+                    return;
+                }
+            }
+            
+            loadChatHistory();
+            if (chatHistory.length > 0) {
+                setTimeout(() => {
+                    const activeIndex = chatHistory.findIndex(chat => chat.id === currentChatId);
+                    const items = document.querySelectorAll('.chat-item');
+                    if (items[activeIndex]) items[activeIndex].classList.add('active');
+                }, 100);
+            }
+        };
+        
+        function createNewChat(firstMessage = '') {
+            saveCurrentChat();
+            
+            const welcomeHTML = `<div class="welcome-message"><div class="message-content"><p>👋 Hello! I'm InfiniTree Nexus. How can I help you today?</p><p class="suggestions">You can ask me questions, upload files for analysis, or just have a conversation!</p></div></div>`;
+            
+            const newChat = {
+                id: Date.now().toString(),
+                title: firstMessage ? generateSmartTitle(firstMessage) : 'New Chat',
+                preview: firstMessage ? (firstMessage.slice(0, 50) + (firstMessage.length > 50 ? '...' : '')) : 'New conversation',
+                timestamp: Date.now(),
+                messages: welcomeHTML
+            };
+            
+            chatHistory.unshift(newChat);
+            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            currentChatId = newChat.id;
+            document.getElementById('chatWindow').innerHTML = newChat.messages;
+            loadChatHistory();
+            
+            setTimeout(() => {
+                const firstItem = document.querySelector('.chat-item');
+                if (firstItem) firstItem.classList.add('active');
+            }, 100);
+        }
+        
+        function generateSmartTitle(text) {
+            const cleanText = text.replace(/^(what|how|why|when|where|who|can you|could you|please|help me|i need|tell me about)\s+/i, '');
+            const title = cleanText.split(/[.!?]/)[0].slice(0, 35) + (cleanText.length > 35 ? '...' : '');
+            return title.charAt(0).toUpperCase() + title.slice(1) || 'New Chat';
+        }
+        
+        function updateChatTitle(userText) {
+            if (!currentChatId) return;
+            const chatIndex = chatHistory.findIndex(chat => chat.id === currentChatId);
+            if (chatIndex === -1) return;
+            
+            chatHistory[chatIndex].title = generateSmartTitle(userText);
+            chatHistory[chatIndex].preview = userText.slice(0, 60) + (userText.length > 60 ? '...' : '');
+            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            loadChatHistory();
+            
+            setTimeout(() => {
+                const items = document.querySelectorAll('.chat-item');
+                if (items[chatIndex]) items[chatIndex].classList.add('active');
+            }, 100);
+        }
+        
+
+
+        // Initialize
+        loadChatHistory();
+        if (chatHistory.length === 0) {
+            createNewChat();
+        } else {
+            currentChatId = chatHistory[0].id;
+            document.getElementById('chatWindow').innerHTML = chatHistory[0].messages;
+            setTimeout(() => {
+                const firstItem = document.querySelector('.chat-item');
+                if (firstItem) firstItem.classList.add('active');
+            }, 100);
+        }
+        
+        const messageInput = document.getElementById('messageInput');
+        
+        // Event handlers
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        document.getElementById('darkModeBtn').onclick = function() {
+            document.body.classList.toggle('dark-mode');
+            const isDark = document.body.classList.contains('dark-mode');
+            localStorage.setItem('darkMode', isDark);
+            this.querySelector('i').className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+        };
+        
+        document.getElementById('toggleSidebarBtn').onclick = function() {
+            document.querySelector('.sidebar').classList.toggle('hidden');
+            document.querySelector('.app-container').classList.toggle('sidebar-hidden');
+        };
+        
+        document.getElementById('settingsBtn').onclick = () => document.getElementById('settingsPanel').classList.toggle('hidden');
+        document.getElementById('newChatBtn').onclick = () => createNewChat();
+        document.getElementById('attachBtn').onclick = () => document.getElementById('contextFile').click();
+
+        // Settings sliders
+        ['temperature', 'top_p', 'top_k'].forEach(param => {
+            const slider = document.getElementById(param);
+            const display = document.getElementById(param === 'temperature' ? 'tempValue' : param === 'top_p' ? 'topPValue' : 'topKValue');
+            slider.oninput = () => display.textContent = slider.value;
+        });
+
+        // File upload
+        document.getElementById('contextFile').onchange = function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                currentFile = file;
+                document.getElementById('filePreview').innerHTML = `<div class="file-item">📌<span>${file.name}</span><button type="button" onclick="removeFile()" class="remove-file"><i class="fas fa-times"></i></button></div>`;
+                document.getElementById('filePreview').classList.remove('hidden');
+            }
+        };
+
+        window.removeFile = function() {
+            currentFile = null;
+            document.getElementById('contextFile').value = '';
+            document.getElementById('filePreview').classList.add('hidden');
+        };
+        
+        // Load dark mode preference
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.body.classList.add('dark-mode');
+            document.getElementById('darkModeBtn').querySelector('i').className = 'fas fa-sun';
+        }
+        
+        document.getElementById('clearBtn').onclick = function() {
+            const welcomeHTML = `<div class="welcome-message"><div class="message-content"><p>👋 Hello! I'm InfiniTree Nexus. How can I help you today?</p><p class="suggestions">You can ask me questions, upload files for analysis, or just have a conversation!</p></div></div>`;
+            document.getElementById('chatWindow').innerHTML = welcomeHTML;
+            
+            if (currentChatId) {
+                const chatIndex = chatHistory.findIndex(chat => chat.id === currentChatId);
+                if (chatIndex !== -1) {
+                    chatHistory[chatIndex].messages = welcomeHTML;
+                    localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+                }
+            }
+        };
+
+        // Chat form submission
+        document.getElementById('chatForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const chatWindow = document.getElementById('chatWindow');
+            const userMessage = messageInput.value.trim();
+            
+            if (!userMessage) return;
+
+            // Remove welcome message if present
+            const welcomeMsg = chatWindow.querySelector('.welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+                
+                // If this is the first message, create new chat or update title
+                if (!currentChatId || chatWindow.children.length === 0) {
+                    if (!currentChatId) {
+                        createNewChat(userMessage);
+                        return; // Exit and let the new chat handle this message
+                    }
+                }
+            }
+
+            // Add user message
+            const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const userBubble = document.createElement('div');
+            userBubble.className = 'message user-message';
+            userBubble.innerHTML = `
+                <div class="message-content">
+                    <p>${userMessage}</p>
+                    ${currentFile ? `<div class="file-attachment">📌 ${currentFile.name}</div>` : ''}
+                    <span class="timestamp">${timestamp}</span>
+                </div>
+            `;
+            chatWindow.appendChild(userBubble);
+
+            // Add typing indicator
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'message bot-message typing';
+            typingIndicator.innerHTML = `
+                <div class="message-content">
+                    <div class="typing-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            `;
+            chatWindow.appendChild(typingIndicator);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+            
+            // Clear input immediately
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('prompt', userMessage);
+            formData.append('temperature', document.getElementById('temperature').value);
+            formData.append('top_p', document.getElementById('top_p').value);
+            formData.append('top_k', document.getElementById('top_k').value);
+            
+            if (currentFile) {
+                formData.append('context_file', currentFile);
+            }
+
+            try {
+                const res = await fetch('http://localhost:5000/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
+
+                const data = await res.json();
+                
+                // Check for API errors
+                if (data.error) {
+                    throw new Error(data.error.message || 'API Error');
+                }
+                
+                const output = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+
+                // Remove typing indicator
+                typingIndicator.remove();
+
+                // Add bot response
+                const botTimestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const botBubble = document.createElement('div');
+                botBubble.className = 'message bot-message';
+                botBubble.innerHTML = `
+                    <div class="message-content">
+                        <div class="response-text"></div>
+                        <span class="timestamp">${botTimestamp}</span>
+                    </div>
+                `;
+                chatWindow.appendChild(botBubble);
+
+                // Typing animation
+                const responseText = botBubble.querySelector('.response-text');
+                let i = 0;
+                const typingSpeed = 5;
+
+                function typeChar() {
+                    if (i < output.length) {
+                        responseText.innerHTML += output[i] === '\n' ? '<br>' : output[i];
+                        i++;
+                        setTimeout(typeChar, typingSpeed);
+                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                    }
+                }
+
+                typeChar();
+                
+                // Auto-generate smart chat title after first response
+                setTimeout(() => updateChatTitle(userMessage), 1000);
+            } catch (err) {
+                typingIndicator.remove();
+                
+                const errorMessages = {
+                    overloaded: '🔄 The AI service is currently busy. Please wait a moment and try again.',
+                    quota: '⚠️ API quota exceeded. Please try again later.',
+                    network: '🌐 Network error. Please check your connection and try again.',
+                    default: 'Sorry, I encountered an error. Please try again.'
+                };
+                
+                const errorType = err.message.includes('overloaded') ? 'overloaded' :
+                                err.message.includes('quota') ? 'quota' :
+                                (err.message.includes('network') || err.message.includes('fetch')) ? 'network' : 'default';
+                
+                const errorMessage = errorMessages[errorType];
+                
+                const errorBubble = document.createElement('div');
+                errorBubble.className = 'message bot-message error';
+                errorBubble.innerHTML = `
+                    <div class="message-content">
+                        <p>${errorMessage}</p>
+                        <span class="timestamp">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                `;
+                chatWindow.appendChild(errorBubble);
+                console.error('Fetch error:', err);
+            }
+
+            setTimeout(() => saveCurrentChat(), 500);
+        };
+
+        // Enter to send (Shift+Enter for new line)
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+flask
+flask-cors
+werkzeug
+google-generativeai
+PyPDF2
+python-docx
+python-dotenv
+textract

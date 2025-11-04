@@ -101,6 +101,7 @@
         let currentFile = null;
         let chatHistory = JSON.parse(localStorage.getItem('chatHistory')) || [];
         let currentChatId = null;
+        let currentSessionId = null;
         
         // Load chat history on page load
         function loadChatHistory() {
@@ -158,7 +159,14 @@
             const chat = chatHistory.find(c => c.id === chatId);
             if (chat) {
                 currentChatId = chatId;
+                currentSessionId = chat.sessionId || ('session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
                 document.getElementById('chatWindow').innerHTML = chat.messages;
+                
+                // Update session ID if missing
+                if (!chat.sessionId) {
+                    chat.sessionId = currentSessionId;
+                    localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+                }
                 
                 // Update active state
                 document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
@@ -206,12 +214,14 @@
                 title: firstMessage ? generateSmartTitle(firstMessage) : 'New Chat',
                 preview: firstMessage ? (firstMessage.slice(0, 50) + (firstMessage.length > 50 ? '...' : '')) : 'New conversation',
                 timestamp: Date.now(),
-                messages: welcomeHTML
+                messages: welcomeHTML,
+                sessionId: 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
             };
             
             chatHistory.unshift(newChat);
             localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
             currentChatId = newChat.id;
+            currentSessionId = newChat.sessionId;
             document.getElementById('chatWindow').innerHTML = newChat.messages;
             loadChatHistory();
             
@@ -251,6 +261,14 @@
             createNewChat();
         } else {
             currentChatId = chatHistory[0].id;
+            currentSessionId = chatHistory[0].sessionId || ('session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
+            
+            // Update session ID if missing
+            if (!chatHistory[0].sessionId) {
+                chatHistory[0].sessionId = currentSessionId;
+                localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+            }
+            
             document.getElementById('chatWindow').innerHTML = chatHistory[0].messages;
             setTimeout(() => {
                 const firstItem = document.querySelector('.chat-item');
@@ -379,6 +397,7 @@
             // Prepare form data
             const formData = new FormData();
             formData.append('prompt', userMessage);
+            formData.append('session_id', currentSessionId);
             formData.append('temperature', document.getElementById('temperature').value);
             formData.append('top_p', document.getElementById('top_p').value);
             formData.append('top_k', document.getElementById('top_k').value);

@@ -5,7 +5,11 @@ import os
 import tempfile
 import logging
 from datetime import datetime
+
 from pymongo import MongoClient
+
+import uuid
+
 
 from llm_client import query_gemini, build_prompt
 from file_processor import extract_text_from_file  # file text reader
@@ -17,6 +21,17 @@ CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Import database utilities with fallback
+try:
+    from db_utils import save_chat, get_chat_history, get_sessions  # type: ignore
+except ImportError:
+    logger.warning("Database utilities not available")
+    # Fallback functions
+    def save_chat(*args): return None
+    def get_chat_history(*args): return []
+    def get_sessions(*args): return []
+    def get_session_document_context(*args): return None
+
 @app.route('/generate', methods=['POST', 'PUT'])
 def generate_response():
     start_time = datetime.now()
@@ -24,10 +39,11 @@ def generate_response():
     
     try:
         # Parse request data
-        is_json = request.method == 'PUT' and request.is_json
+        is_json = request.is_json
         data_source = request.get_json() if is_json else request.form
         
         prompt = data_source.get('prompt', '').strip()
+        session_id = data_source.get('session_id', str(uuid.uuid4()))
         temperature = float(data_source.get('temperature', 0.7))
         top_p = float(data_source.get('top_p', 0.9))
         top_k = int(data_source.get('top_k', 40))
@@ -49,9 +65,31 @@ def generate_response():
             file_text = extract_text_from_file(filepath)
             logger.info(f"Processed file: {file.filename}")
 
-        # Generate response
-        full_prompt = build_prompt(prompt, file_text)
+        # Get conversation history and document context
+        conversation_history = []
+        session_document_context = ""
+        try:
+            conversation_history = get_chat_history(session_id)
+            # If no new file uploaded, get document context from session
+            if not file_text:
+                from db_utils import get_session_document_context
+                session_document_context = get_session_document_context(session_id) or ""
+                file_text = session_document_context
+        except:
+            pass
+        
+        # Generate response with conversation and document context
+        full_prompt = build_prompt(prompt, file_text, conversation_history)
         response = query_gemini(full_prompt, temperature, top_p, top_k)
+        
+        # Save to database with document context (optional)
+        try:
+            # Store document context only when a new file is uploaded
+            doc_context = file_text if file and file.filename else None
+            save_chat(session_id, prompt, response.get('response', ''), doc_context)
+            response['session_id'] = session_id
+        except:
+            response['session_id'] = session_id
         
         # Cleanup temp file
         if filepath:
@@ -67,6 +105,22 @@ def generate_response():
     except Exception as e:
         logger.error(f"Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/chats/<session_id>', methods=['GET'])
+def get_chats(session_id):
+    try:
+        chats = get_chat_history(session_id)
+        return jsonify(chats)
+    except:
+        return jsonify([])
+
+@app.route('/sessions', methods=['GET'])
+def list_sessions():
+    try:
+        sessions = get_sessions()
+        return jsonify(sessions)
+    except:
+        return jsonify([])
 
 @app.errorhandler(404)
 def not_found(error):

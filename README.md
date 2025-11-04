@@ -13,5 +13,5 @@ A Flask-based chatbot.
 # Start all services
 docker-compose up -d
 
-# Access frontend at http://localhost:3000
+# Access frontend at http://localhost:30080
 # Backend API at http://localhost:5000

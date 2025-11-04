@@ -26,6 +26,7 @@ except ImportError:
     def save_chat(*args): return None
     def get_chat_history(*args): return []
     def get_sessions(*args): return []
+    def get_session_document_context(*args): return None
 
 @app.route('/generate', methods=['POST', 'PUT'])
 def generate_response():
@@ -34,7 +35,7 @@ def generate_response():
     
     try:
         # Parse request data
-        is_json = request.method == 'PUT' and request.is_json
+        is_json = request.is_json
         data_source = request.get_json() if is_json else request.form
         
         prompt = data_source.get('prompt', '').strip()
@@ -60,20 +61,28 @@ def generate_response():
             file_text = extract_text_from_file(filepath)
             logger.info(f"Processed file: {file.filename}")
 
-        # Get conversation history for context
+        # Get conversation history and document context
         conversation_history = []
+        session_document_context = ""
         try:
             conversation_history = get_chat_history(session_id)
+            # If no new file uploaded, get document context from session
+            if not file_text:
+                from db_utils import get_session_document_context
+                session_document_context = get_session_document_context(session_id) or ""
+                file_text = session_document_context
         except:
             pass
         
-        # Generate response with conversation context
+        # Generate response with conversation and document context
         full_prompt = build_prompt(prompt, file_text, conversation_history)
         response = query_gemini(full_prompt, temperature, top_p, top_k)
         
-        # Save to database (optional)
+        # Save to database with document context (optional)
         try:
-            save_chat(session_id, prompt, response.get('response', ''))
+            # Store document context only when a new file is uploaded
+            doc_context = file_text if file and file.filename else None
+            save_chat(session_id, prompt, response.get('response', ''), doc_context)
             response['session_id'] = session_id
         except:
             response['session_id'] = session_id

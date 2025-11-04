@@ -9,11 +9,6 @@ import uuid
 
 from llm_client import query_gemini, build_prompt
 from file_processor import extract_text_from_file  # file text reader
-try:
-    from db_utils import save_chat, get_chat_history, get_sessions
-except ImportError:
-    logger.warning("Database utilities not available")
-    save_chat = get_chat_history = get_sessions = lambda *args: None
 
 app = Flask(__name__)
 CORS(app)
@@ -21,6 +16,16 @@ CORS(app)
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Import database utilities with fallback
+try:
+    from db_utils import save_chat, get_chat_history, get_sessions  # type: ignore
+except ImportError:
+    logger.warning("Database utilities not available")
+    # Fallback functions
+    def save_chat(*args): return None
+    def get_chat_history(*args): return []
+    def get_sessions(*args): return []
 
 @app.route('/generate', methods=['POST', 'PUT'])
 def generate_response():
@@ -55,8 +60,15 @@ def generate_response():
             file_text = extract_text_from_file(filepath)
             logger.info(f"Processed file: {file.filename}")
 
-        # Generate response
-        full_prompt = build_prompt(prompt, file_text)
+        # Get conversation history for context
+        conversation_history = []
+        try:
+            conversation_history = get_chat_history(session_id)
+        except:
+            pass
+        
+        # Generate response with conversation context
+        full_prompt = build_prompt(prompt, file_text, conversation_history)
         response = query_gemini(full_prompt, temperature, top_p, top_k)
         
         # Save to database (optional)

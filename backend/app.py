@@ -5,7 +5,11 @@ import os
 import tempfile
 import logging
 from datetime import datetime
+
+from pymongo import MongoClient
+
 import uuid
+
 
 from llm_client import query_gemini, build_prompt
 from file_processor import extract_text_from_file  # file text reader
@@ -126,6 +130,78 @@ def not_found(error):
 def internal_error(error):
     return jsonify({"error": "Internal server error"}), 500
 
+
+# to see the history of our chat form mongo db atlas
+
+
+MONGO_URI="mongodb+srv://masterujju:masterujju@cluster0.8qixdt4.mongodb.net/?appName=Cluster0"
+
+client = MongoClient(MONGO_URI)
+
+# creating database
+db = client['Reggie_AI']
+
+# creating collection
+
+collection = db['messages_log']
+
+
+@app.route("/history", methods=['GET'])
+def history():
+    messages = list(collection.find())
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Chat History</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #f4f4f4;
+                padding: 20px;
+            }
+            .chat-window {
+                height: 400px;
+                overflow-y: auto;
+                background-color: #fff;
+                padding: 15px;
+                border-radius: 8px;
+                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }
+            .chat-message {
+                margin-bottom: 10px;
+                padding: 10px;
+                background-color: #e9e9e9;
+                border-radius: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Chat History</h2>
+        <div class="chat-window">
+    """
+
+    for msg in messages:
+        html += f"""
+            <div class="chat-message">
+                <strong>User:</strong> {msg.get('prompt', '')}<br>
+                <strong>Bot:</strong> {msg.get('response', '')}
+            </div>
+        """
+
+    if not messages:
+        html += "<p>No messages found.</p>"
+
+    html += """
+        </div>
+    </body>
+    </html>
+    """
+
+    return html
+
 if __name__ == '__main__':
     logger.info("Starting GenAI ChatBot API")
     app.run(host='0.0.0.0', port=5000, debug=True)
+

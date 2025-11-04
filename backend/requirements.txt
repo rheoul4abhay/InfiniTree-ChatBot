@@ -6,4 +6,6 @@ PyPDF2
 python-docx
 python-dotenv
 textract
+pymongo
 psycopg2-binary
+
